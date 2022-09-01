@@ -1,14 +1,17 @@
-from beir import util, LoggingHandler
 import logging
-import pathlib, os, random
+import os
+import pathlib
+import random
+from collections import defaultdict
+from statistics import harmonic_mean, mean, geometric_mean
+
+import numpy as np
+from beir import util, LoggingHandler
+from beir.datasets.data_loader import GenericDataLoader
+from sklearn import preprocessing
+
 from bm25_result import generate_bm25_result
 from sbert_result import generate_sbert_result
-from beir.datasets.data_loader import GenericDataLoader
-from statistics import harmonic_mean, geometric_mean
-from sklearn import preprocessing
-import numpy as np
-from collections import defaultdict
-
 
 #### Just some code to print debug information to stdout
 logging.basicConfig(format='%(asctime)s - %(message)s',
@@ -59,7 +62,13 @@ def get_mean_result(bm25_result, sbert_result, meanType = "harmonic"):
             if question_id in bm25_result.keys() and doc_id in bm25_result[question_id].keys():
                 if question_id not in final_result.keys():
                     final_result[question_id] = {}
-                if meanType == "harmonic":
+                if meanType == "arithmatic":
+                    final_result[question_id][doc_id] = mean([bm25_result[question_id][doc_id],
+                                                                       sbert_result[question_id][doc_id]])
+                elif meanType == "geometric":
+                    final_result[question_id][doc_id] = geometric_mean([bm25_result[question_id][doc_id],
+                                                                       sbert_result[question_id][doc_id]])
+                else:
                     final_result[question_id][doc_id] = harmonic_mean([bm25_result[question_id][doc_id],
                                                                        sbert_result[question_id][doc_id]])
 
@@ -82,26 +91,28 @@ corpus, queries, qrels = GenericDataLoader(data_path).load(split="test")
 index_name = dataset
 host_name = "localhost"
 
-bm25_result, bm25_retriever = generate_bm25_result(index_name, host_name, corpus, queries)
+bm25_result, bm25_retriever = generate_bm25_result(index_name, host_name, corpus, queries, initialize=False)
 
 bm25_norm_result = normalize_values(bm25_result)
 
 # this section takes a lot of time as this generates embedding for questions and answers and then finds the
 # similary between both embedded values
-sbert_result, dense_retriever = generate_sbert_result(corpus, queries, "msmarco-distilbert-base-tas-b", k_values, 128)
+sbert_result, dense_retriever = generate_sbert_result(corpus, queries, "msmarco-roberta-base-ance-firstp", k_values,
+                                                      batch_size=16)
 #
 sbert_norm_result = normalize_values(sbert_result)
 
-merged_result = get_mean_result(bm25_norm_result, sbert_norm_result)
+merged_result = get_mean_result(bm25_norm_result, sbert_norm_result, meanType="arithmatic")
 ndcg, _map, recall, precision = dense_retriever.evaluate(qrels, merged_result, k_values)
 
 print("Printing ndcg:", ndcg)
 print("Printing _map:", _map)
-print("Printing recall:", recall)
 print("Printing precision:", precision)
+print("Printing recall:", recall)
+
 
 #### Retrieval Example ####
-query_id, scores_dict = random.choice(list(merged_result.items()))
+query_id, scores_dict = random.choice(list(sbert_result.items()))
 logging.info("Query : %s\n" % queries[query_id])
 
 scores = sorted(scores_dict.items(), key=lambda item: item[1], reverse=True)
