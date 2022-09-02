@@ -56,6 +56,8 @@ def get_mean_result(bm25_result, sbert_result, meanType = "harmonic"):
                                               mean score of both results
 
     '''
+    print(meanType + " is calculating")
+
     final_result = defaultdict()
     for question_id, doc_dict in sbert_result.items():
         for doc_id, doc_value in doc_dict.items():
@@ -74,7 +76,17 @@ def get_mean_result(bm25_result, sbert_result, meanType = "harmonic"):
 
     return final_result
 
+def count_output_list(merged_result):
+    count_dict = {}
+    for question_id, doc_dict in merged_result.items():
+        if len(doc_dict) < 100:
+            count_dict[question_id] = len(doc_dict)
+    return count_dict
 
+
+tt_k_values = [1, 3, 5, 10, 100, 3500]
+
+fh_k_values = [1, 3, 5, 10, 100, 250]
 
 k_values = [1, 3, 5, 10, 100]
 
@@ -91,18 +103,39 @@ corpus, queries, qrels = GenericDataLoader(data_path).load(split="test")
 index_name = dataset
 host_name = "localhost"
 
-bm25_result, bm25_retriever = generate_bm25_result(index_name, host_name, corpus, queries, initialize=False)
+bm25_result, bm25_retriever = generate_bm25_result(index_name, host_name, corpus, queries, initialize=False,
+                                                   k_values=tt_k_values)
+
+count_bm25_dict = count_output_list(bm25_result)
+
+print("number of the question that doesn't have 100 BM25 results: ", len(count_bm25_dict))
 
 bm25_norm_result = normalize_values(bm25_result)
 
+
+## this is for custom model. In `generate_sbert_result` you can either provide the model name or the file path of the
+# model
+custom_model_path = os.path.join(pathlib.Path(__file__).parent.absolute(), "models") + "/custom_tasb"
+
 # this section takes a lot of time as this generates embedding for questions and answers and then finds the
 # similary between both embedded values
-sbert_result, dense_retriever = generate_sbert_result(corpus, queries, "msmarco-roberta-base-ance-firstp", k_values,
+sbert_result, dense_retriever = generate_sbert_result(corpus, queries, custom_model_path, fh_k_values,
                                                       batch_size=16)
-#
+
+count_dense_dict = count_output_list(sbert_result)
+
+print("number of the question that doesn't have 100 DenseModel results: ", len(count_dense_dict))
+
 sbert_norm_result = normalize_values(sbert_result)
 
 merged_result = get_mean_result(bm25_norm_result, sbert_norm_result, meanType="arithmatic")
+
+print("Number of questions:", len(merged_result))
+
+count_dict = count_output_list(merged_result)
+
+print("number of the question that doesn't have 100 results: ", len(count_dict))
+
 ndcg, _map, recall, precision = dense_retriever.evaluate(qrels, merged_result, k_values)
 
 print("Printing ndcg:", ndcg)

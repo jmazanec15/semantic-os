@@ -5,7 +5,8 @@ from beir.retrieval.evaluation import EvaluateRetrieval
 from beir.retrieval.search.lexical import BM25Search as BM25
 
 
-def generate_bm25_result(index_name, host_name, corpus, queries, initialize=False, number_of_shards=1):
+def generate_bm25_result(index_name, host_name, corpus, queries, initialize=False, number_of_shards=1,
+                         k_values=[1,3,5,10,100,1000]):
     '''
          This method generates the search score of the given questions and pulls answers from elastic search
          We create an index in elastic search and then ingest the documents and then perform search based on queries
@@ -43,7 +44,7 @@ def generate_bm25_result(index_name, host_name, corpus, queries, initialize=Fals
     #### https://www.elastic.co/
     model = BM25(index_name=index_name, hostname=host_name, initialize=initialize, number_of_shards=number_of_shards)
 
-    retriever = EvaluateRetrieval(model)
+    retriever = EvaluateRetrieval(model, k_values=k_values)
     #### Retrieve dense results (format of results is identical to qrels)
     results = retriever.retrieve(corpus, queries)
 
