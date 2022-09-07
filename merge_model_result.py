@@ -80,8 +80,8 @@ def get_mean_result(bm25_result, sbert_result, meanType="harmonic"):
 
 def get_normalized_weighted_linear_result(bm25_result, sbert_result, factor=1.0):
     '''
-         This method calculates the mean of the search result from bm25 and bert model
-         score = first_result * factor + second_result
+         Instead of normalizing the scores, we can just try different weights for each score and combine them linearly.
+         score = sbert_result * factor + bm25_result
 
          @param bm25_result:        dict      a nested dictionary of question id and dictionary of document id and
                                               normalized score, search result of bm25
