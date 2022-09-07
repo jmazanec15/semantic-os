@@ -89,7 +89,9 @@ def get_normalized_weighted_linear_result(bm25_result, sbert_result, factor=1.0)
          @param sbert_result:      dict      a nested dictionary of question id and dictionary of document id and
                                               normalized score, search result of bert transformer
 
-         @param final_result:      dict      a nested dictionary of question id and dictionary of document id and
+         @param factor:            number    weight factor to be added with sbert result
+
+         @return final_result:     dict      a nested dictionary of question id and dictionary of document id and
                                               weighted linear result
 
     '''
