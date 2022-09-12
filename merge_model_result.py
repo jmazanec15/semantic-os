@@ -40,6 +40,28 @@ def normalize_values(seach_result):
 
     return seach_result
 
+def normalize_values_min_max_scaler(seach_result):
+    '''
+         This method normalizes (using min max Scaler) values of a nested dictionary with in-place replacement.
+
+         @param seach_result:        dict     a nested dictionary of question id and dictionary of document id and score
+
+         @return seach_result:       dict     a nested dictionary of question id and dictionary of document id and
+                                              normalized score
+    '''
+    for _, d in seach_result.items():
+        x_array = np.array(list(d.values())).astype(float)
+        x_array_list = x_array.reshape(-1, 1)
+        scaler = preprocessing.MinMaxScaler(feature_range=(0, 1))
+        normalized_list = scaler.fit_transform(x_array_list)
+        normalized_list = normalized_list.reshape(len(x_array))
+
+        # total_sum = sum(d.values())
+        # factor = 1.0 / total_sum
+        d.update(zip(d, normalized_list))
+
+    return seach_result
+
 
 def get_mean_result(bm25_result, sbert_result, meanType="harmonic"):
     '''
@@ -69,8 +91,9 @@ def get_mean_result(bm25_result, sbert_result, meanType="harmonic"):
                     final_result[question_id][doc_id] = mean([bm25_result[question_id][doc_id],
                                                               sbert_result[question_id][doc_id]])
                 elif meanType == "geometric":
-                    final_result[question_id][doc_id] = geometric_mean([bm25_result[question_id][doc_id],
-                                                                        sbert_result[question_id][doc_id]])
+                    if bm25_result[question_id][doc_id] > 0 and sbert_result[question_id][doc_id] > 0:
+                        final_result[question_id][doc_id] = geometric_mean([bm25_result[question_id][doc_id],
+                                                                            sbert_result[question_id][doc_id]])
                 else:
                     final_result[question_id][doc_id] = harmonic_mean([bm25_result[question_id][doc_id],
                                                                        sbert_result[question_id][doc_id]])
@@ -100,14 +123,13 @@ def get_normalized_weighted_linear_result(bm25_result, sbert_result, factor=1.0)
     final_result = defaultdict()
     for question_id, doc_dict in sbert_result.items():
         for doc_id, doc_value in doc_dict.items():
+            if question_id not in final_result.keys():
+                final_result[question_id] = {}
             if question_id in bm25_result.keys() and doc_id in bm25_result[question_id].keys():
-                if question_id not in final_result.keys():
-                    final_result[question_id] = {}
-                if doc_id in bm25_result[question_id].keys():
-                    final_result[question_id][doc_id] = bm25_result[question_id][doc_id] + \
-                                                        (factor * sbert_result[question_id][doc_id])
-                else:
-                    final_result[question_id][doc_id] = 0 + (factor * sbert_result[question_id][doc_id])
+                final_result[question_id][doc_id] = bm25_result[question_id][doc_id] + \
+                                                    (factor * sbert_result[question_id][doc_id])
+            else:
+                final_result[question_id][doc_id] = 0 + (factor * sbert_result[question_id][doc_id])
 
     return final_result
 
@@ -132,10 +154,13 @@ data_path = util.download_and_unzip(url, out_dir)
 
 corpus, queries, qrels = GenericDataLoader(data_path).load(split="test")
 
+# This k values are being used for BM25 search
 tt_k_values = [1, 3, 5, 10, 100, len(corpus)]
 
+# This K values are being used for dense model search
 fh_k_values = [1, 3, 5, 10, 100, 250]
 
+# this k values are being used for scoring
 k_values = [1, 3, 5, 10, 100]
 
 index_name = dataset
@@ -150,27 +175,29 @@ count_bm25_dict = count_output_list(bm25_result)
 #
 # print(count_bm25_dict)
 
-bm25_norm_result = normalize_values(bm25_result)
+# bm25_norm_result = normalize_values(bm25_result)
+bm25_norm_result = normalize_values_min_max_scaler(bm25_result)
 
 ## this is for custom model. In `generate_sbert_result` you can either provide the model name or the file path of the
 # model
-# custom_model_path = os.path.join(pathlib.Path(__file__).parent.absolute(), "models") + "/custom_tasb"
+custom_model_path = os.path.join(pathlib.Path(__file__).parent.absolute(), "models") + "/custom_tasb"
 
 # this section takes a lot of time as this generates embedding for questions and answers and then finds the
 # similary between both embedded values
-# sbert_result, dense_retriever = generate_sbert_result(corpus, queries, custom_model_path, fh_k_values,
-#                                                       batch_size=16)
-sbert_result, dense_retriever = generate_sbert_result(corpus, queries, "msmarco-roberta-base-ance-firstp", fh_k_values,
+sbert_result, dense_retriever = generate_sbert_result(corpus, queries, custom_model_path, fh_k_values,
                                                       batch_size=16)
+# sbert_result, dense_retriever = generate_sbert_result(corpus, queries, "msmarco-distilbert-base-tas-b", fh_k_values,
+#                                                       batch_size=16)
 
 count_dense_dict = count_output_list(sbert_result)
 
 # print("number of the question that doesn't have 100 DenseModel results: ", len(count_dense_dict))
 
-sbert_norm_result = normalize_values(sbert_result)
+# sbert_norm_result = normalize_values(sbert_result)
+sbert_norm_result = normalize_values_min_max_scaler(sbert_result)
 
-# merged_result = get_mean_result(bm25_norm_result, sbert_norm_result, meanType="arithmatic")
-merged_result = get_normalized_weighted_linear_result(bm25_norm_result, sbert_norm_result, 2)
+merged_result = get_mean_result(bm25_norm_result, sbert_norm_result, meanType="geometric")
+# merged_result = get_normalized_weighted_linear_result(bm25_result, sbert_norm_result, 4096)
 
 print("Number of questions:", len(merged_result))
 
