@@ -34,7 +34,7 @@ def generate_sbert_result(corpus, queries, model_name, k_values, batch_size=16):
     #
     # corpus, queries, qrels = GenericDataLoader(data_path).load(split="test")
 
-    retriever = EvaluateRetrieval(model, score_function="cos_sim",
+    retriever = EvaluateRetrieval(model, score_function="dot",
                                   k_values=k_values)  # or "cos_sim" for cosine similarity
     results = retriever.retrieve(corpus, queries)
 

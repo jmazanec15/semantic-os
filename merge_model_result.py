@@ -20,116 +20,56 @@ logging.basicConfig(format='%(asctime)s - %(message)s',
                     handlers=[LoggingHandler()])
 
 
-def normalize_values(seach_result):
-    '''
-         This method normalizes values of a nested dictionary with in-place replacement.
+def combine_results(results_a, results_b, num_results):
+    """
+    Simple strategy to provide one result from each. Skip duplicates. If there are not enough from one set. Use the
+    rest from the other set
 
-         @param seach_result:        dict     a nested dictionary of question id and dictionary of document id and score
+    @param results_a: First set of results
+    @param results_b: Second set of results
+    @param num_results: Number of results to aggregate to
+    @return: set of results
+    """
 
-         @return seach_result:       dict     a nested dictionary of question id and dictionary of document id and
-                                              normalized score
-    '''
-    for _, d in seach_result.items():
-        x_array = np.array(list(d.values())).astype(float)
-        normalized_arr = preprocessing.normalize([x_array])
-        normalized_arr = normalized_arr.tolist()[0]
+    questions = [question_id for question_id, doc_dict in results_a.items()]
+    questions.extend([question_id for question_id, doc_dict in results_b.items() if question_id not in questions])
 
-        # total_sum = sum(d.values())
-        # factor = 1.0 / total_sum
-        d.update(zip(d, normalized_arr))
+    final_result = dict()
+    for question_id in questions:
+        final_result[question_id] = dict()
 
-    return seach_result
+        # First, sort the results into lists so that the best results at the fron for the question
+        q_results_a = results_a[question_id] if question_id in results_a else {}
+        q_results_a_iterable = list(sorted(q_results_a.items(), key=lambda item: item[1], reverse=True))
+        q_results_b = results_b[question_id] if question_id in results_b else {}
+        q_results_b_iterable = list(sorted(q_results_b.items(), key=lambda item: item[1], reverse=True))
 
-def normalize_values_min_max_scaler(seach_result):
-    '''
-         This method normalizes (using min max Scaler) values of a nested dictionary with in-place replacement.
+        size_a = len(q_results_a_iterable)
+        size_b = len(q_results_b_iterable)
 
-         @param seach_result:        dict     a nested dictionary of question id and dictionary of document id and score
+        a_i = 0
+        b_i = 0
+        current_i = 0
+        a_turn = True if size_a > 0 else False
 
-         @return seach_result:       dict     a nested dictionary of question id and dictionary of document id and
-                                              normalized score
-    '''
-    for _, d in seach_result.items():
-        x_array = np.array(list(d.values())).astype(float)
-        x_array_list = x_array.reshape(-1, 1)
-        scaler = preprocessing.MinMaxScaler(feature_range=(0, 1))
-        normalized_list = scaler.fit_transform(x_array_list)
-        normalized_list = normalized_list.reshape(len(x_array))
+        # Go one by one through the results adding the correct next one. Skip if it has already been added
+        while current_i < min(size_a + size_b, num_results):
+            if a_turn:
+                while a_i < size_a and q_results_a_iterable[a_i][0] in final_result[question_id]:
+                    a_i += 1
 
-        # total_sum = sum(d.values())
-        # factor = 1.0 / total_sum
-        d.update(zip(d, normalized_list))
-
-    return seach_result
-
-
-def get_mean_result(bm25_result, sbert_result, meanType="harmonic"):
-    '''
-         This method calculates the mean of the search result from bm25 and bert model
-
-         @param bm25_result:        dict      a nested dictionary of question id and dictionary of document id and
-                                              normalized score
-                                              search result of bm25
-
-         @param sbert_result:      dict      a nested dictionary of question id and dictionary of document id and
-                                              normalized score
-                                              search result of bert transformer
-
-         @param final_result:      dict      a nested dictionary of question id and dictionary of document id and
-                                              mean score of both results
-
-    '''
-    print(meanType + " is calculating")
-
-    final_result = defaultdict()
-    for question_id, doc_dict in sbert_result.items():
-        for doc_id, doc_value in doc_dict.items():
-            if question_id in bm25_result.keys() and doc_id in bm25_result[question_id].keys():
-                if question_id not in final_result.keys():
-                    final_result[question_id] = {}
-                if meanType == "arithmatic":
-                    final_result[question_id][doc_id] = mean([bm25_result[question_id][doc_id],
-                                                              sbert_result[question_id][doc_id]])
-                elif meanType == "geometric":
-                    if bm25_result[question_id][doc_id] > 0 and sbert_result[question_id][doc_id] > 0:
-                        final_result[question_id][doc_id] = geometric_mean([bm25_result[question_id][doc_id],
-                                                                            sbert_result[question_id][doc_id]])
-                else:
-                    final_result[question_id][doc_id] = harmonic_mean([bm25_result[question_id][doc_id],
-                                                                       sbert_result[question_id][doc_id]])
-
-    return final_result
-
-
-def get_normalized_weighted_linear_result(bm25_result, sbert_result, factor=1.0):
-    '''
-         Instead of normalizing the scores, we can just try different weights for each score and combine them linearly.
-         score = sbert_result * factor + bm25_result
-
-         @param bm25_result:        dict      a nested dictionary of question id and dictionary of document id and
-                                              normalized score, search result of bm25
-
-         @param sbert_result:      dict      a nested dictionary of question id and dictionary of document id and
-                                              normalized score, search result of bert transformer
-
-         @param factor:            number    weight factor to be added with sbert result
-
-         @return final_result:     dict      a nested dictionary of question id and dictionary of document id and
-                                              weighted linear result
-
-    '''
-    print("factor: ", factor)
-
-    final_result = defaultdict()
-    for question_id, doc_dict in sbert_result.items():
-        for doc_id, doc_value in doc_dict.items():
-            if question_id not in final_result.keys():
-                final_result[question_id] = {}
-            if question_id in bm25_result.keys() and doc_id in bm25_result[question_id].keys():
-                final_result[question_id][doc_id] = bm25_result[question_id][doc_id] + \
-                                                    (factor * sbert_result[question_id][doc_id])
+                if a_i < size_a:
+                    final_result[question_id][q_results_a_iterable[a_i][0]] = 1.0 / (current_i + 1)
+                    current_i += 1
+                a_turn = False
             else:
-                final_result[question_id][doc_id] = 0 + (factor * sbert_result[question_id][doc_id])
+                while b_i < size_b and q_results_b_iterable[b_i][0] in final_result[question_id]:
+                    b_i += 1
+
+                if b_i < size_b:
+                    final_result[question_id][q_results_b_iterable[b_i][0]] = 1.0 / (current_i + 1)
+                    current_i += 1
+                a_turn = True
 
     return final_result
 
@@ -155,10 +95,10 @@ data_path = util.download_and_unzip(url, out_dir)
 corpus, queries, qrels = GenericDataLoader(data_path).load(split="test")
 
 # This k values are being used for BM25 search
-tt_k_values = [1, 3, 5, 10, 100, len(corpus)]
+tt_k_values = [len(corpus)]
 
 # This K values are being used for dense model search
-fh_k_values = [1, 3, 5, 10, 100, 250]
+fh_k_values = [len(corpus)]
 
 # this k values are being used for scoring
 k_values = [1, 3, 5, 10, 100]
@@ -171,33 +111,16 @@ bm25_result, bm25_retriever = generate_bm25_result(index_name, host_name, corpus
 
 count_bm25_dict = count_output_list(bm25_result)
 
-# print("number of the question that doesn't have 100 BM25 results: ", len(count_bm25_dict))
-#
-# print(count_bm25_dict)
-
-# bm25_norm_result = normalize_values(bm25_result)
-bm25_norm_result = normalize_values_min_max_scaler(bm25_result)
-
-## this is for custom model. In `generate_sbert_result` you can either provide the model name or the file path of the
-# model
 custom_model_path = os.path.join(pathlib.Path(__file__).parent.absolute(), "models") + "/custom_tasb"
 
 # this section takes a lot of time as this generates embedding for questions and answers and then finds the
 # similary between both embedded values
 sbert_result, dense_retriever = generate_sbert_result(corpus, queries, custom_model_path, fh_k_values,
                                                       batch_size=16)
-# sbert_result, dense_retriever = generate_sbert_result(corpus, queries, "msmarco-distilbert-base-tas-b", fh_k_values,
-#                                                       batch_size=16)
 
 count_dense_dict = count_output_list(sbert_result)
 
-# print("number of the question that doesn't have 100 DenseModel results: ", len(count_dense_dict))
-
-# sbert_norm_result = normalize_values(sbert_result)
-sbert_norm_result = normalize_values_min_max_scaler(sbert_result)
-
-merged_result = get_mean_result(bm25_norm_result, sbert_norm_result, meanType="geometric")
-# merged_result = get_normalized_weighted_linear_result(bm25_result, sbert_norm_result, 4096)
+merged_result = combine_results(bm25_result, sbert_result, 100)
 
 print("Number of questions:", len(merged_result))
 
